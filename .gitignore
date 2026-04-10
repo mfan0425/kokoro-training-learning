@@ -21,7 +21,7 @@ env/
 .mypy_cache/
 
 # ── Dataset (not redistributable — see README) ─────────────────────────────
-dataset/audio/
+dataset/
 
 # ── Training artifacts (large binary files) ─────────────────────────────────
 training/kokoro_base.pth
