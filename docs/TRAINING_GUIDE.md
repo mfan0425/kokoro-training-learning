@@ -100,7 +100,7 @@ Where:
 - **Format:** WAV, mono
 - **Sample rate:** 24000 Hz
 - **Bit depth:** 16-bit
-- **Duration:** 1–15 seconds per clip (very short or very long clips cause issues)
+- **Duration:** 2–30 seconds per clip (the `prepare_dataset.py` filter enforces this range). Longer clips preserve natural sentence-level prosody and phrasing, which is valuable for Stage 2 training. The hard upper limit comes from PLBERT's 510-token `max_position_embeddings` — at typical German speaking rates, ~30 seconds of speech stays within this. Note that longer clips increase VRAM usage since the collater pads all batch items to the longest mel in the batch.
 - **Min phoneme length:** 50 chars (configurable via `min_length` in config)
 
 If your source audio is MP3, convert with ffmpeg:
