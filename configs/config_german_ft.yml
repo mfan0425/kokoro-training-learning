@@ -125,7 +125,7 @@ training:
   # Pre-trained model loading
   pretrained_model: "../training/kokoro_base.pth"
   load_only_params: true            # ignore missing keys (diffusion, SLM discriminator)
-  second_stage_load_pretrained: true
+  second_stage_load_pretrained: false  # load from first_stage.pth (has trained style_encoder)
 
 # ── Pitch Extractor ──────────────────────────────────────────────────────────
 # StyleTTS2 uses JDC pitch extractor
