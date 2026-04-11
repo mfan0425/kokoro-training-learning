@@ -215,3 +215,37 @@ All patches are committed on the `main` branch of `semidark/StyleTTS2`:
 - `meldataset.py` — filters sequences > 510 tokens (PLBERT max_position_embeddings)
 - `train_first.py` / `train_second.py` — checkpoint save moved before TensorBoard audio generation, F0 unsqueeze bug fixed, torch.load monkey-patch for PyTorch 2.6+, ipdb breakpoint removed
 - `models.py` / `Modules/*.py` — weight_norm/spectral_norm migrated to new parametrizations API
+
+### Critical Stage 2 Fixes (April 2026)
+
+These fixes resolved the "static noise" and "style encoder collapse" issues that previously blocked Stage 2 training:
+
+- **`train_second.py` (DataParallel order)** — Moved `MyDataParallel` wrapping to *after* `load_checkpoint()`. Wrapping before checkpoint loading prepends `module.` to all state dict keys, causing silent weight loading failures (`strict=False`) and random initialization. This was the root cause of the style encoder outputting ~1e17 values (static noise).
+
+- **`train_second.py` (Weight loading)** — Removed `bert`, `bert_encoder`, and `predictor` from `ignore_modules`. Previously these modules were discarded during Stage 2 loading, forcing the prosody predictor to train from random initialization instead of fine-tuning the pretrained English Kokoro weights.
+
+- **`train_second.py` (Adversarial logic)** — Restored accidentally deleted `y_rec_gt` / `y_rec_gt_pred` computation required for WavLM adversarial (`slmadv`) loss. Without this, enabling `joint_epoch` caused immediate crashes.
+
+- **`train_second.py` (GAN gating)** — Changed discriminator activation (`start_ds`) to gate on `joint_epoch` instead of `diff_epoch`. Since Kokoro sets `diff_epoch=999` (disabling diffusion), the GAN discriminator never activated under the old logic.
+
+- **`Modules/slmadv.py` (Diffusion bypass)** — Added `diffusion_enabled` flag to bypass the diffusion style sampler when diffusion is disabled (`diff_epoch=999`). Previously the sampler ran anyway, feeding garbage style embeddings to the discriminator.
+
+- **TensorBoard audio (Kokoro-faithful inference)** — Replaced misleading ground-truth audio generation with proper Kokoro inference: predict duration/F0/energy using the `predictor`, extract mini voicepack from current `style_encoder`, and decode through the decoder. This gives accurate previews of actual inference quality rather than artificially-perfect reconstructions.
+
+### Stage 2 Configuration Requirements
+
+To prevent model collapse, Stage 2 **requires** these config settings:
+
+```yaml
+# In loss_params:
+joint_epoch: 3              # Start adversarial training at epoch 3 (not 999)
+lambda_slm: 1.0             # Enable SLM adversarial loss
+
+# In training section:
+second_stage_load_pretrained: false  # Load from first_stage.pth (trained)
+                                      # true = load from kokoro_base.pth (not recommended)
+```
+
+**Why these matter:**
+- `joint_epoch: 999` disables the GAN/SLM losses that provide gradient signal to the `style_encoder`. Without this signal, `spectral_norm` buffers drift and output explodes.
+- `second_stage_load_pretrained: true` loads from the base English checkpoint, discarding your Stage 1 acoustic training. Must be `false` to continue from `first_stage.pth`.
