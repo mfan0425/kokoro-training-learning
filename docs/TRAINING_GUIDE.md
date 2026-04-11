@@ -42,6 +42,18 @@ Kokoro-82M is a StyleTTS 2-based TTS model. Its training code lives in the [Styl
 
 **What this guide does not cover:** training from scratch, diffusion model training, or multi-speaker setups.
 
+## Status: Both Stages Now Fully Functional
+
+**April 2026:** This guide documents a **fully working, end-to-end training pipeline** for fine-tuning Kokoro-82M on any language. Previous issues with Stage 2 training have been resolved. The five critical fixes are:
+
+1. **DataParallel wrapping order**: Moved `MyDataParallel` wrapping to *after* checkpoint loading so state dict keys match correctly
+2. **Missing pretrained weights**: Removed `bert`, `bert_encoder`, `predictor` from `ignore_modules` so Stage 2 actually loads pretrained English Kokoro weights
+3. **Missing adversarial logic**: Restored accidentally deleted `y_rec_gt` / `y_rec_gt_pred` computation for `joint_epoch` training
+4. **GAN discriminator activation**: Fixed discriminator activation to gate on `joint_epoch` instead of `diff_epoch`
+5. **Diffusion sampler bypass**: Added `diffusion_enabled` flag to use ground-truth style vectors when diffusion is disabled
+
+All fixes are committed to the `semidark/StyleTTS2` submodule. Clone with `--recurse-submodules` to get the patched version.
+
 ---
 
 ## Hardware & Prerequisites
@@ -236,11 +248,34 @@ print(f'OK: {len(symbols)} symbols, sample IDs: {ids}')
 
 ## Step 4: StyleTTS2 Environment Setup
 
-### Clone StyleTTS2
+### Clone with Submodule (Recommended)
+
+This repository includes a **patched fork of StyleTTS2** as a git submodule with all the critical fixes applied:
+
+```bash
+git clone --recurse-submodules https://github.com/semidark/kokoro-deutsch
+cd kokoro-deutsch/StyleTTS2
+```
+
+The submodule (`semidark/StyleTTS2`) contains all necessary patches:
+- ✅ weight_norm API migration (new parametrizations API)
+- ✅ DataParallel wrapping order fix
+- ✅ Missing adversarial logic restored
+- ✅ GAN discriminator activation fix
+- ✅ Diffusion sampler bypass
+- ✅ F0 tensor shape bug fix
+- ✅ Checkpoint save order fix
+- ✅ PLBERT max sequence filter
+- ✅ PyTorch 2.6+ weights_only compatibility
+
+### Using Upstream StyleTTS2 (Not Recommended)
+
+If you must use the upstream repository, you will need to apply **all** the patches manually. See the [Known Issues & Fixes](#known-issues--fixes-in-styletts2) section for the complete list of required changes.
 
 ```bash
 git clone https://github.com/yl4579/StyleTTS2.git
 cd StyleTTS2
+# Then manually apply all patches from the sections below
 ```
 
 ### Download Required Utility Models
@@ -478,12 +513,12 @@ loss_params:
   lambda_norm: 1.0
   lambda_s2s: 1.0
   lambda_mono: 1.0
-  lambda_slm: 0.0           # disabled for stage 1
+  lambda_slm: 1.0           # enable SLM adversarial loss for stage 2 (0 for stage 1)
   lambda_diff: 0.0          # disabled — no diffusion
   lambda_sty: 0.0
   TMA_epoch: 0              # start alignment immediately (fine-tuning, not scratch)
   diff_epoch: 999           # effectively disable diffusion training
-  joint_epoch: 999          # effectively disable SLM joint training
+  joint_epoch: 3            # start SLM/GAN adversarial training at epoch 3
 
 optimizer_params:
   lr: 0.0001
@@ -651,7 +686,32 @@ Add `epochs_2nd` to the top level of the config (read by `train_second.py`):
 
 ```yaml
 epochs_2nd: 10
+first_stage_path: "first_stage.pth"  # Stage 1 checkpoint to load (relative to log_dir)
 ```
+
+**Important config changes for Stage 2:**
+
+The default config values have been updated to work correctly with the fixes:
+
+```yaml
+# In loss_params section:
+joint_epoch: 3                    # Start adversarial training at epoch 3 (not 999)
+lambda_slm: 1.0                   # Enable SLM adversarial loss
+
+# In training section:
+second_stage_load_pretrained: false  # false = load from first_stage.pth (recommended)
+                                      # true = load from kokoro_base.pth (not recommended)
+```
+
+**Why `second_stage_load_pretrained: false`?**
+- `false` loads from your trained `first_stage.pth`, which has a properly trained `style_encoder`
+- `true` loads from `kokoro_base.pth`, which requires `strict=False` and can silently fail to load certain modules
+
+**Joint training settings:**
+- `joint_epoch: 3` starts the GAN discriminator and SLM adversarial losses at epoch 3
+- This provides gradient signal to stabilize the `style_encoder` and improve prosody quality
+- Earlier values (like `joint_epoch: 1`) work but may be unstable initially
+- The original `joint_epoch: 999` effectively disabled these losses, contributing to the style encoder collapse
 
 Stage 2 loads the Stage 1 checkpoint automatically. By default it looks for `logs/kokoro_german/first_stage.pth` (written when Stage 1 completes all epochs). If you stopped Stage 1 early, set `first_stage_path` to the specific checkpoint:
 
@@ -670,32 +730,66 @@ accelerate launch train_second.py --config_path ../configs/config_german_ft.yml
 
 | Loss | What it means | Healthy trend |
 |------|--------------|---------------|
-| Loss (Mel) | Mel reconstruction with predicted prosody | Stable ~7.5–7.7 |
+| Loss (Mel) | Mel reconstruction with predicted prosody | **~0.43** at start, declining to ~0.25 |
 | Dur Loss | Duration prediction accuracy | 1.3 → 0.9 over 10 epochs |
 | CE Loss | Alignment cross-entropy | 0.18 → 0.05 |
 | Norm Loss | Energy (N) prediction | 3.0 → 0.8 (noisy) |
 | F0 Loss | Pitch contour prediction | 4.1 → 1.8 over 10 epochs |
 | LM Loss | WavLM feature matching | Stable ~2.95 |
-| Gen/Disc/Sty/Diff | GAN + diffusion losses | 0.00 (disabled via `joint_epoch`/`diff_epoch`) |
+| Gen/Disc Loss | GAN discriminator losses | Activate at `joint_epoch`, stable ~2-4 |
+| SLM Loss | WavLM adversarial loss | Activate at `joint_epoch`, stable ~1-3 |
 
-The Mel loss in Stage 2 is much higher than Stage 1 (~7.6 vs ~0.25) because the decoder now receives *predicted* F0/energy instead of ground truth. This is expected. As F0 and Norm losses decline, the effective audio quality improves even though the Mel number stays high.
+**Important:** With the checkpoint loading fixes, Stage 2 Mel loss now starts at **~0.43** (indicating pretrained weights loaded correctly) rather than **~7.5-8.0** (indicating random initialization). 
 
-### Critical Finding: Stage 2 Style Encoder Degradation
+If you see Mel loss starting above 2.0, check that:
+1. `pretrained_model` points to your Stage 1 checkpoint
+2. `load_only_params: true` is set
+3. You're using the patched `train_second.py` from the submodule (DataParallel after loading)
 
-**Warning:** We observed a failure mode where Stage 2 training produces static noise during inference.
+The Mel loss is higher than Stage 1 because the decoder receives *predicted* F0/energy instead of ground truth, but with proper weight loading it should start around 0.4, not 7.5.
 
-**Symptoms:**
-- Stage 1 training succeeds, producing intelligible (if robotically-timed) speech when tested end-to-end.
-- Stage 2 completes training seemingly successfully, but outputs pure static noise.
-- The extracted voicepack has an exceptionally low norm (~0.38) or explodes to `NaN` instead of a typical ~2.2 norm.
+### Critical Finding: Stage 2 Style Encoder Degradation (RESOLVED)
 
-**Root Cause:**
-Because `joint_epoch` is usually set to `999` (disabling the GAN discriminator and adversarial loss), the `style_encoder` is never optimized during Stage 2. However, its internal `spectral_norm` buffers continue to drift with each forward pass. This causes the style embedding to either collapse (norm near 0) or explode (norm 1e17+). Additionally, silent checkpoint load failures (`strict=False`) can result in the `style_encoder` starting from random initialization rather than the warm start from Stage 1.
+**Status:** ✅ **FIXED** — Stage 2 training now works correctly. The issues below were caused by bugs that have been resolved.
 
-**Workaround & Next Steps:**
-1. **Fallback Voicepack Extraction:** Use the `style_encoder` from your Stage 1 checkpoint for extracting the voicepack, while retaining the rest of the weights from Stage 2. (We added the `--style-encoder-model` flag to `scripts/extract_voicepack.py` for this).
-2. **Verify Load Integrity:** Explicitly verify that your `load_checkpoint` call successfully populates the `style_encoder` keys. If `module.` prefixes are mismatched, the model will silently initialize `style_encoder` with random weights.
-3. **Joint Training:** Consider lowering `joint_epoch` (e.g., to 1) so the WavLM and GAN discriminators provide gradient signal to stabilize the `style_encoder`.
+**Previous Symptoms:**
+- Stage 1 training succeeded, producing intelligible (if robotically-timed) speech.
+- Stage 2 would complete training but output pure static noise.
+- The extracted voicepack had an exceptionally low norm (~0.38) or exploded to `NaN`.
+
+**Root Causes (Now Fixed):**
+
+1. **DataParallel Bug:** `load_checkpoint()` was being called *after* models were wrapped in `MyDataParallel` (which prepends `module.` to all keys). Because `strict=False` was used, checkpoint keys silently failed to match, loading zero weights. The `style_encoder` initialized randomly, its `spectral_norm` collapsed, and the output exploded to ~1e17, causing static noise.
+   - **Fix:** Moved `MyDataParallel` wrapping to *after* checkpoint loading in `train_second.py`.
+
+2. **Discarded Pretrained Weights:** The `ignore_modules` list in `train_second.py` was actively discarding `bert`, `bert_encoder`, and `predictor` from the Stage 1 checkpoint, forcing the model to throw away pretrained English Kokoro prosody knowledge.
+   - **Fix:** Removed these modules from `ignore_modules`.
+
+3. **Missing Adversarial Logic:** The code computing `y_rec_gt` and `y_rec_gt_pred` had been accidentally deleted, making it impossible to enable `joint_epoch` without crashing.
+   - **Fix:** Restored the missing ground-truth logic.
+
+4. **GAN Discriminator Inactive:** The GAN discriminator activation (`start_ds`) was gated on `diff_epoch`. Since Kokoro disables diffusion (`diff_epoch=999`), the GAN discriminator never turned on.
+   - **Fix:** Gated `start_ds` on `joint_epoch` instead.
+
+5. **Diffusion Sampler Garbage:** The `SLMAdversarialLoss` was sampling style embeddings from the diffusion model even when disabled, feeding garbage to the discriminator.
+   - **Fix:** Added a `diffusion_enabled` flag to bypass the sampler.
+
+**Current Behavior:**
+- Stage 2 now correctly loads pretrained weights from Stage 1
+- Mel loss starts at ~0.43 (indicating trained weights) instead of ~8.33 (random weights)
+- Adversarial training activates correctly at `joint_epoch`
+- TensorBoard shows Kokoro-faithful inference audio using predicted duration/pitch
+
+### Kokoro-Faithful TensorBoard Audio
+
+The training code now generates **Kokoro-faithful audio samples** in TensorBoard at the end of each epoch. Instead of using ground-truth F0/energy (which produces misleadingly good results), the samples are generated using the actual inference path:
+
+1. Extract a mini voicepack from the current model's style encoder
+2. Predict duration, F0, and energy using the `predictor`
+3. Decode through the `decoder`
+4. Compare against Stage 1 baseline at epoch 0
+
+This gives you accurate previews of how the model will sound when used with `KPipeline` inference. The audio is saved to TensorBoard at `train/epoch_X/audio` for each of 7 test sentences.
 
 ### Checkpoint conversion for inference
 
@@ -943,6 +1037,79 @@ if getattr(torch, "_original_load", None) is None:
         *args, **{**kwargs, "weights_only": False}
     )
 ```
+
+### Bug 7: DataParallel wrapping before checkpoint loading (CRITICAL)
+
+**File:** `train_second.py` lines ~280–320
+
+**Symptom:** Stage 2 training appears to work but produces static noise during inference. Mel loss starts at ~7.5–8.0 instead of ~0.4. Voicepack norm is extremely low (~0.38) or explodes to `NaN`.
+
+**Cause:** The model was wrapped in `MyDataParallel` **before** `load_checkpoint()` was called. `MyDataParallel` prepends `module.` to all state dict keys. Because `load_checkpoint` uses `strict=False`, the mismatching keys (with `module.` prefix in the model but without in the checkpoint) were silently ignored. The `style_encoder` started from random initialization, causing spectral_norm to collapse and output to explode to ~1e17.
+
+**Fix:** Move the `MyDataParallel` wrapping to **after** checkpoint loading:
+
+```python
+# BEFORE (buggy):
+model = MyDataParallel(...)  # model now has module. prefix
+model, optimizer, ... = load_checkpoint(...)  # checkpoint keys don't match
+
+# AFTER (fixed):
+model, optimizer, ... = load_checkpoint(...)  # load first with matching keys
+model = MyDataParallel(...)  # wrap after loading
+```
+
+This fix is in the `semidark/StyleTTS2` submodule.
+
+### Bug 8: `ignore_modules` discards pretrained weights (CRITICAL)
+
+**File:** `train_second.py` `load_checkpoint` call
+
+**Symptom:** Stage 2 prosody predictor starts from random initialization instead of pretrained English weights. Duration and pitch predictions are poor quality even after training.
+
+**Cause:** The `ignore_modules` list included `bert`, `bert_encoder`, and `predictor`, causing these modules to be excluded from checkpoint loading. Stage 2 was forced to train these from scratch instead of fine-tuning the pretrained English prosody knowledge.
+
+**Fix:** Remove `bert`, `bert_encoder`, `predictor` from `ignore_modules`. The complete Stage 2 loading should be:
+
+```python
+model, optimizer, ... = load_checkpoint(
+    model, 
+    optimizer, 
+    ...
+    # ignore_modules=['decoder', 'style_encoder']  # Only these if needed
+)
+```
+
+The patched `train_second.py` in the submodule no longer excludes these critical modules.
+
+### Bug 9: Missing adversarial ground-truth computation
+
+**File:** `train_second.py` training loop
+
+**Symptom:** Enabling `joint_epoch` (adversarial training) causes `NameError: name 'y_rec_gt' is not defined` or crashes with missing tensors.
+
+**Cause:** The code computing `y_rec_gt` and `y_rec_gt_pred` (required for WavLM adversarial loss) was accidentally deleted in a previous cleanup.
+
+**Fix:** Restore the ground-truth computation in the training loop before the adversarial loss section.
+
+### Bug 10: GAN discriminator gated on wrong epoch
+
+**File:** `train_second.py` discriminator activation
+
+**Symptom:** GAN discriminator never activates even when `joint_epoch` is set. Only SLM adversarial loss runs, no GAN losses.
+
+**Cause:** The discriminator activation was gated on `diff_epoch` instead of `joint_epoch`. Since Kokoro sets `diff_epoch=999` (disabling diffusion), the discriminator never turned on.
+
+**Fix:** Change the gating condition from `diff_epoch` to `joint_epoch`.
+
+### Bug 11: Diffusion sampler runs when disabled
+
+**File:** `Modules/slmadv.py` `SLMAdversarialLoss`
+
+**Symptom:** SLM adversarial loss produces unstable/nonsensical values when diffusion is disabled. Style embeddings appear random.
+
+**Cause:** The `SLMAdversarialLoss` tried to sample style embeddings from the diffusion model even when `diff_epoch=999` (diffusion disabled), feeding garbage to the discriminator.
+
+**Fix:** Add a `diffusion_enabled` flag that bypasses the diffusion sampler and uses ground-truth style vectors directly when diffusion is disabled.
 
 ---
 
