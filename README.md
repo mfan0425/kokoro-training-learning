@@ -76,7 +76,7 @@ uv sync
 ## Repository Layout
 
 ```text
-kokoro/              # Local Kokoro inference package copy (temporary; planned submodule)
+kokoro/              # Kokoro fork submodule (contains the `kokoro/` Python package)
 StyleTTS2/           # Patched training code (git submodule: semidark/StyleTTS2)
 scripts/             # Dataset prep, voicepack extraction, inference testing
 configs/             # Training config(s)

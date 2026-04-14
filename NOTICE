@@ -5,21 +5,21 @@ This project contains code from the following open-source projects:
 
 ────────────────────────────────────────────────────────────────────────────────
 
-kokoro/ — Kokoro TTS inference package
+kokoro/ — Kokoro TTS inference package (git submodule)
   Source:  https://github.com/hexgrad/kokoro
+  Fork:    https://github.com/semidark/kokoro (branch: main)
   License: Apache License 2.0
   Author:  hexgrad
-  Changes: Added German language code ('d') to pipeline.py and __main__.py.
-           Custom loguru handler in __init__.py. Minor formatting changes.
+  Changes: Fork includes German language support (`'d'`) in pipeline/CLI.
 
 ────────────────────────────────────────────────────────────────────────────────
 
 StyleTTS2/ — Training code (git submodule)
   Source:  https://github.com/yl4579/StyleTTS2
-  Fork:    https://github.com/semidark/StyleTTS2 (branch: kokoro-deutsch)
+  Fork:    https://github.com/semidark/StyleTTS2 (branch: main)
   License: MIT License
   Author:  Yinghao Aaron Li (yl4579)
-  Changes: See the commit history on the kokoro-deutsch branch for a full
+  Changes: See the commit history on the main branch for a full
            list of patches. Summary:
            - Migrated weight_norm/spectral_norm to parametrizations API
            - Fixed multiple training bugs (F0 shape, checkpoint save order,

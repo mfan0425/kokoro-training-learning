@@ -4,7 +4,7 @@
 
 kokoro-deutsch is a training recipe for fine-tuning [Kokoro TTS](https://github.com/hexgrad/kokoro) (82M parameters, based on StyleTTS 2) for German. The project contains:
 
-- A lightly modified copy of the `kokoro/` inference package (German language code added)
+- A forked `kokoro/` inference package as a git submodule (`semidark/kokoro`, branch `main`), with German language code support
 - A patched fork of `StyleTTS2/` as a git submodule (`semidark/StyleTTS2`, branch `main`)
 - Original scripts for dataset preparation, voicepack extraction, and inference testing
 - Training and troubleshooting docs split by purpose
@@ -18,7 +18,7 @@ kokoro-deutsch is a training recipe for fine-tuning [Kokoro TTS](https://github.
 ## Build & Install
 
 ```bash
-# Clone with submodule
+# Clone with submodules
 git clone --recurse-submodules https://github.com/semidark/kokoro-deutsch
 cd kokoro-deutsch
 
@@ -122,7 +122,7 @@ No linter or formatter is configured. Follow the existing conventions observed i
 ## Project Structure
 
 ```
-kokoro/              # Inference package (from hexgrad/kokoro, German lang code added)
+kokoro/              # Fork submodule root (contains nested Python package `kokoro/`)
   __init__.py        # Version, logging setup, public exports (KModel, KPipeline)
   __main__.py        # CLI entry point
   pipeline.py        # KPipeline: G2P + voice management + inference orchestration
