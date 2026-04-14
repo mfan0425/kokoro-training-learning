@@ -30,7 +30,8 @@ dependencies = [
 kokoro = "kokoro.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["kokoro"]
+only-include = ["kokoro/kokoro"]
+sources = ["kokoro"]
 only-packages = true
 
 [project.urls]
