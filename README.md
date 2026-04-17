@@ -84,10 +84,6 @@ docs/                # Training guide, troubleshooting, architecture notes
 training/            # Local training artifacts metadata (audio excluded)
 ```
 
-## Notes on Data
-
-The original 28.6h training dataset is not included and cannot be redistributed. Use your own clean German speech data or public alternatives (Thorsten-Voice, HUI, CSS10 German).
-
 ## Contributing
 
 Contributions are welcome, especially:
