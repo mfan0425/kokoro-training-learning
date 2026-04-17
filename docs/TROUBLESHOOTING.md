@@ -100,3 +100,39 @@ Fix:
 3. Confirm train/eval mode transitions
 4. Confirm adversarial gating and diffusion bypass settings
 5. Run a short smoke run before full training
+
+## AMD ROCm Notes
+
+### What works
+
+- **ROCm 7.12** on AMD Radeon 8060S (Strix Halo / Ryzen AI Max) runs the full training loop successfully
+- fp32 precision with batch_size=4 is fully stable
+- PyTorch detects the GPU correctly; use `torch.cuda.is_available()` (ROCm maps to the CUDA API)
+
+### What doesn't work
+
+**fp16 / mixed precision:** Do not use. fp16 training causes silent crashes and hangs during MIOpen kernel compilation on this architecture.
+
+**Large batch sizes:** batch_size > 4 triggers slow or unstable MIOpen kernel tuning on first run and can silently hang. Stick with batch_size=4 for stability.
+
+**accelerate config:** Use the simplest possible config — no mixed precision, no multi-GPU:
+
+```yaml
+# ~/.cache/huggingface/accelerate/default_config.yaml
+compute_environment: LOCAL_MACHINE
+mixed_precision: 'no'
+num_processes: 1
+```
+
+### MIOpen kernel compilation
+
+On the very first training run, ROCm/MIOpen compiles GPU kernels for each operation. This can take 10–30 minutes before the first step completes. This is normal. Subsequent runs reuse the compiled kernels from cache (`~/.cache/miopen/`).
+
+Do not kill the process during this phase — it will look like a hang but it isn't.
+
+### Performance
+
+With fp32 and batch_size=4 on an 8060S with 137GB unified memory:
+- ~105 seconds per training step
+- ~4.8 hours per epoch on 11,551 clips
+- Full 10-epoch run: ~48 hours
