@@ -1,4 +1,4 @@
-batch_size: 4
+batch_size: 12
 epochs: 10
 epochs_1st: 10
 epochs_2nd: 10
@@ -6,6 +6,7 @@ save_freq: 1
 pretrained_model: "../training/kokoro_base.pth"
 first_stage_path: "first_stage.pth"
 load_only_params: true
+second_stage_load_pretrained: false  # false = load from first_stage.pth (recommended)
 # ─────────────────────────────────────────────────────────────────────────────
 # Kokoro German Fine-Tuning Config
 # ─────────────────────────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ load_only_params: true
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Logging ──────────────────────────────────────────────────────────────────
-log_dir: "logs/kokoro_german"
+log_dir: "logs/kokoro-deutsch"
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 data_params:
@@ -25,6 +26,7 @@ data_params:
   root_path: "../dataset/audio"
   OOD_data: "../training/OOD_texts.txt"
   min_length: 50                    # min phoneme sequence length (chars)
+  num_workers:  24                  # CPU workers for data loading
 
 # ── Preprocessing ────────────────────────────────────────────────────────────
 preprocess_params:
@@ -114,18 +116,19 @@ optimizer_params:
   bert_lr: 0.00001                  # lower LR for PLBERT (mostly frozen knowledge)
   ft_lr: 0.0001                     # fine-tuning LR for acoustic modules
 
-# ── Training Schedule ────────────────────────────────────────────────────────
+# TODO: Remove this entire `training:` block — it is dead config.
+# Neither train_first.py nor train_second.py reads from config["training"].
+# All these values are read from the TOP LEVEL keys above.
+# See: https://github.com/semidark/kokoro-deutsch/issues/14
 training:
-  epochs: 10                        # 10 epochs of 28h data = plenty
-  batch_size: 4                     # conservative for 12GB VRAM; increase on A100
-  save_freq: 2                      # save checkpoint every N epochs
-  log_interval: 10                  # log every N steps
-  eval_interval: 500                # evaluate every N steps
-
-  # Pre-trained model loading
+  epochs: 10
+  batch_size: 4
+  save_freq: 2
+  log_interval: 10
+  eval_interval: 500
   pretrained_model: "../training/kokoro_base.pth"
-  load_only_params: true            # ignore missing keys (diffusion, SLM discriminator)
-  second_stage_load_pretrained: false  # load from first_stage.pth (has trained style_encoder)
+  load_only_params: true
+  second_stage_load_pretrained: false
 
 # ── Pitch Extractor ──────────────────────────────────────────────────────────
 # StyleTTS2 uses JDC pitch extractor
