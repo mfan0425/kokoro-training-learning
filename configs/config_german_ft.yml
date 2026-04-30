@@ -21,10 +21,10 @@ log_dir: "logs/kokoro-deutsch"
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 data_params:
-  train_data: "../training/train_list.txt"
-  val_data: "../training/val_list.txt"
-  root_path: "../dataset/audio"
-  OOD_data: "../training/OOD_texts.txt"
+  train_data: "Data/train_list.txt"
+  val_data: "Data/val_list.txt"
+  root_path: "Data/wavs"
+  OOD_data: "Data/OOD_texts.txt"
   min_length: 50                    # min phoneme sequence length (chars)
   num_workers:  24                  # CPU workers for data loading
 
