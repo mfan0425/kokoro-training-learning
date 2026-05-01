@@ -1,7 +1,7 @@
 batch_size: 12
-epochs: 1 #10
-epochs_1st: 1 #10
-epochs_2nd: 1 #10
+epochs: 10
+epochs_1st: 10
+epochs_2nd: 10
 save_freq: 1
 pretrained_model: "../training/kokoro_base.pth"
 first_stage_path: "first_stage.pth"
