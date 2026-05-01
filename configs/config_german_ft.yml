@@ -1,7 +1,7 @@
 batch_size: 12
-epochs: 10
-epochs_1st: 10
-epochs_2nd: 10
+epochs: 1 #10
+epochs_1st: 1 #10
+epochs_2nd: 1 #10
 save_freq: 1
 pretrained_model: "../training/kokoro_base.pth"
 first_stage_path: "first_stage.pth"
@@ -17,7 +17,7 @@ second_stage_load_pretrained: false  # false = load from first_stage.pth (recomm
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Logging ──────────────────────────────────────────────────────────────────
-log_dir: "logs/kokoro-deutsch"
+log_dir: "Models"
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 data_params:
@@ -26,7 +26,7 @@ data_params:
   root_path: "Data/wavs"
   OOD_data: "Data/OOD_texts.txt"
   min_length: 50                    # min phoneme sequence length (chars)
-  num_workers:  24                  # CPU workers for data loading
+  num_workers: 12                 # CPU workers for data loading
 
 # ── Preprocessing ────────────────────────────────────────────────────────────
 preprocess_params:
