@@ -4,7 +4,7 @@ epochs_1st: 10
 epochs_2nd: 10
 save_freq: 1
 pretrained_model: "../training/kokoro_base.pth"
-first_stage_path: "first_stage.pth"
+first_stage_path: "../training/first_stage.pth"
 load_only_params: true
 second_stage_load_pretrained: false  # false = load from first_stage.pth (recommended)
 # ─────────────────────────────────────────────────────────────────────────────
